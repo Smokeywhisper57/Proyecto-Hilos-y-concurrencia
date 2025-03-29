@@ -1,4 +1,4 @@
-package com.mycompany.tragmone;
+package com.mycompany.slotmachine;
 
 import javax.swing.*;
 import java.awt.*;
@@ -8,302 +8,313 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Clase principal que inicia la aplicación del tragamonedas
- * Patrón MVC + Concurrencia
+ * Aplicación principal del juego de tragamonedas
+ * Implementa el patrón MVC con manejo de concurrencia
  */
-public class TragMone {
+public class SlotMachineApp {
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
-            Symbol[] symbols = {
-                new Symbol("🍒", 10),
-                new Symbol("🍋", 5),
-                new Symbol("🍊", 3),
-                new Symbol("⭐", 1)
+            // Configuración inicial de símbolos con sus valores
+            Symbol[] gameSymbols = {
+                new Symbol("🍒", 10),  // Cereza - mayor valor
+                new Symbol("🍋", 5),   // Limón - valor medio
+                new Symbol("🍊", 3),   // Naranja - valor bajo
+                new Symbol("⭐", 1)     // Estrella - valor especial
             };
 
-            Reel[] reels = { new Reel(symbols), new Reel(symbols), new Reel(symbols) };
-            SlotMachine model = new SlotMachine(reels);
-            SlotMachineViewGUI view = new SlotMachineViewGUI();
-            SlotMachineController controller = new SlotMachineController(model, view);
+            // Creación de los tres rodillos del juego
+            Reel[] gameReels = { 
+                new Reel(gameSymbols), 
+                new Reel(gameSymbols), 
+                new Reel(gameSymbols) 
+            };
+            
+            // Inicialización del modelo, vista y controlador
+            SlotMachineModel gameModel = new SlotMachineModel(gameReels);
+            SlotMachineView gameView = new SlotMachineView();
+            SlotMachineController gameController = new SlotMachineController(gameModel, gameView);
 
-            ExecutorService executor = Executors.newFixedThreadPool(2);
-            executor.execute(new GameThread(controller));
+            // Configuración del pool de hilos para manejo concurrente
+            ExecutorService threadPool = Executors.newFixedThreadPool(2);
+            threadPool.execute(new GameEngineThread(gameController));
         });
     }
 }
 
 /**
- * Representa un símbolo en los rodillos del tragamonedas
+ * Representa un símbolo que aparece en los rodillos del juego
  */
 class Symbol {
-    private final String name;
-    private final int value;
+    private final String displayCharacter;
+    private final int payoutMultiplier;
 
-    public Symbol(String name, int value) {
-        this.name = name;
-        this.value = value;
+    public Symbol(String displayCharacter, int payoutMultiplier) {
+        this.displayCharacter = displayCharacter;
+        this.payoutMultiplier = payoutMultiplier;
     }
 
-    public String getName() {
-        return name;
+    public String getDisplayCharacter() {
+        return displayCharacter;
     }
 
-    public int getValue() {
-        return value;
+    public int getPayoutMultiplier() {
+        return payoutMultiplier;
     }
 }
 
 /**
- * Representa un rodillo con símbolos que puede girar
+ * Representa un rodillo individual que puede girar y mostrar símbolos
  */
 class Reel {
-    private final Symbol[] symbols;
+    private final Symbol[] availableSymbols;
 
-    public Reel(Symbol[] symbols) {
-        this.symbols = symbols;
+    public Reel(Symbol[] availableSymbols) {
+        this.availableSymbols = availableSymbols;
     }
 
     /**
-     * Genera un resultado aleatorio del rodillo
+     * Simula el giro del rodillo y devuelve un símbolo aleatorio
      */
     public Symbol spin() {
-        return symbols[new Random().nextInt(symbols.length)];
+        Random randomGenerator = new Random();
+        return availableSymbols[randomGenerator.nextInt(availableSymbols.length)];
     }
 }
 
 /**
- * Modelo principal del tragamonedas (MVC)
- * Contiene la lógica del juego y estado
+ * Modelo principal del juego que contiene la lógica y estado
  */
-class SlotMachine {
-    private final Reel[] reels;
-    private int bet;
-    private int credits = 100;
+class SlotMachineModel {
+    private final Reel[] gameReels;
+    private int currentBet;
+    private int playerCredits = 100;
 
-    public SlotMachine(Reel[] reels) {
-        this.reels = reels;
+    public SlotMachineModel(Reel[] gameReels) {
+        this.gameReels = gameReels;
     }
 
-    public void setBet(int bet) {
-        this.bet = bet;
+    public void setCurrentBet(int newBet) {
+        this.currentBet = newBet;
     }
 
-    public int getCredits() {
-        return credits;
-    }
-
-    /**
-     * Verifica si se puede realizar un giro
-     */
-    public boolean canSpin() {
-        return credits >= bet && bet > 0;
+    public int getPlayerCredits() {
+        return playerCredits;
     }
 
     /**
-     * Realiza un giro y calcula los resultados
+     * Verifica si el jugador puede realizar un giro
      */
-    public SpinResult spin() {
-        if (!canSpin()) {
-            return new SpinResult(null, 0, credits);
+    public boolean isSpinAllowed() {
+        return playerCredits >= currentBet && currentBet > 0;
+    }
+
+    /**
+     * Ejecuta un giro y calcula el resultado
+     */
+    public SpinOutcome executeSpin() {
+        if (!isSpinAllowed()) {
+            return new SpinOutcome(null, 0, playerCredits);
         }
         
-        credits -= bet;
-        Symbol[] results = new Symbol[reels.length];
+        playerCredits -= currentBet;
+        Symbol[] spinResults = new Symbol[gameReels.length];
         
-        for (int i = 0; i < reels.length; i++) {
-            results[i] = reels[i].spin();
+        for (int i = 0; i < gameReels.length; i++) {
+            spinResults[i] = gameReels[i].spin();
         }
         
-        int winnings = calculateWinnings(results);
-        credits += winnings;
+        int winAmount = calculateWinAmount(spinResults);
+        playerCredits += winAmount;
         
-        return new SpinResult(results, winnings, credits);
+        return new SpinOutcome(spinResults, winAmount, playerCredits);
     }
 
     /**
-     * Calcula las ganancias basado en los símbolos
+     * Calcula el monto ganado basado en los símbolos obtenidos
      */
-    private int calculateWinnings(Symbol[] symbols) {
-        return allSymbolsMatch(symbols) ? symbols[0].getValue() * bet : 0;
+    private int calculateWinAmount(Symbol[] spinResults) {
+        return allSymbolsIdentical(spinResults) ? 
+               spinResults[0].getPayoutMultiplier() * currentBet : 0;
     }
 
-    private boolean allSymbolsMatch(Symbol[] symbols) {
-        String first = symbols[0].getName();
+    private boolean allSymbolsIdentical(Symbol[] symbols) {
+        String firstSymbol = symbols[0].getDisplayCharacter();
         for (Symbol symbol : symbols) {
-            if (!symbol.getName().equals(first)) return false;
+            if (!symbol.getDisplayCharacter().equals(firstSymbol)) return false;
         }
         return true;
     }
 }
 
 /**
- * Contiene el resultado de un giro
+ * Contiene los resultados de un giro del tragamonedas
  */
-class SpinResult {
-    private final Symbol[] symbols;
-    private final int winnings;
-    private final int credits;
+class SpinOutcome {
+    private final Symbol[] resultingSymbols;
+    private final int creditsWon;
+    private final int totalCredits;
 
-    public SpinResult(Symbol[] symbols, int winnings, int credits) {
-        this.symbols = symbols;
-        this.winnings = winnings;
-        this.credits = credits;
+    public SpinOutcome(Symbol[] resultingSymbols, int creditsWon, int totalCredits) {
+        this.resultingSymbols = resultingSymbols;
+        this.creditsWon = creditsWon;
+        this.totalCredits = totalCredits;
     }
 
-    public Symbol[] getSymbols() {
-        return symbols;
+    public Symbol[] getResultingSymbols() {
+        return resultingSymbols;
     }
 
-    public int getWinnings() {
-        return winnings;
+    public int getCreditsWon() {
+        return creditsWon;
     }
 
-    public int getCredits() {
-        return credits;
+    public int getTotalCredits() {
+        return totalCredits;
     }
 }
 
 /**
- * Vista del tragamonedas (MVC)
- * Maneja la interfaz gráfica
+ * Vista del juego que maneja la interfaz gráfica
  */
-class SlotMachineViewGUI {
-    private final JFrame frame;
-    private final JLabel[] reelLabels;
-    private final JLabel creditsLabel;
-    private final JLabel resultLabel;
-    private final JTextField betField;
+class SlotMachineView {
+    private final JFrame mainWindow;
+    private final JLabel[] reelDisplayLabels;
+    private final JLabel creditsDisplay;
+    private final JLabel resultMessage;
+    private final JTextField betInputField;
     private final JButton spinButton;
     private final JButton increaseBetButton;
     private final JButton decreaseBetButton;
 
-    public SlotMachineViewGUI() {
-        frame = new JFrame("Tragamonedas MVC");
-        reelLabels = new JLabel[3];
-        creditsLabel = new JLabel("Créditos: ");
-        resultLabel = new JLabel("");
-        betField = new JTextField("1", 5);
+    public SlotMachineView() {
+        mainWindow = new JFrame("Tragamonedas MVC");
+        reelDisplayLabels = new JLabel[3];
+        creditsDisplay = new JLabel("Créditos: ");
+        resultMessage = new JLabel("");
+        betInputField = new JTextField("1", 5);
         spinButton = new JButton("GIRAR");
         increaseBetButton = new JButton("+");
         decreaseBetButton = new JButton("-");
         
-        createUI();
+        initializeInterface();
     }
 
-    private void createUI() {
-        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setSize(600, 400);
-        frame.setLayout(new BorderLayout());
-        frame.setLocationRelativeTo(null);
+    private void initializeInterface() {
+        mainWindow.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        mainWindow.setSize(600, 400);
+        mainWindow.setLayout(new BorderLayout());
+        mainWindow.setLocationRelativeTo(null);
 
-        JPanel reelsPanel = createReelsPanel();
-        JPanel controlPanel = createControlPanel();
+        JPanel reelsPanel = createReelsDisplayPanel();
+        JPanel controlsPanel = createControlButtonsPanel();
 
-        frame.add(reelsPanel, BorderLayout.CENTER);
-        frame.add(controlPanel, BorderLayout.SOUTH);
-        frame.setVisible(true);
+        mainWindow.add(reelsPanel, BorderLayout.CENTER);
+        mainWindow.add(controlsPanel, BorderLayout.SOUTH);
+        mainWindow.setVisible(true);
     }
 
-    private JPanel createReelsPanel() {
+    private JPanel createReelsDisplayPanel() {
         JPanel panel = new JPanel(new GridLayout(1, 3, 10, 10));
         for (int i = 0; i < 3; i++) {
-            reelLabels[i] = new JLabel("", SwingConstants.CENTER);
-            reelLabels[i].setFont(new Font("Segoe UI Emoji", Font.BOLD, 60));
-            reelLabels[i].setBorder(BorderFactory.createLineBorder(Color.BLUE, 2));
-            panel.add(reelLabels[i]);
+            reelDisplayLabels[i] = new JLabel("", SwingConstants.CENTER);
+            reelDisplayLabels[i].setFont(new Font("Segoe UI Emoji", Font.BOLD, 60));
+            reelDisplayLabels[i].setBorder(BorderFactory.createLineBorder(Color.BLUE, 2));
+            panel.add(reelDisplayLabels[i]);
         }
         return panel;
     }
 
-    private JPanel createControlPanel() {
+    private JPanel createControlButtonsPanel() {
         JPanel panel = new JPanel(new GridLayout(4, 1, 5, 5));
         
         JPanel creditsPanel = new JPanel();
-        creditsPanel.add(creditsLabel);
+        creditsPanel.add(creditsDisplay);
         
-        JPanel betPanel = new JPanel();
-        betPanel.add(new JLabel("Apuesta:"));
-        betPanel.add(betField);
-        betPanel.add(decreaseBetButton);
-        betPanel.add(increaseBetButton);
+        JPanel betControlsPanel = new JPanel();
+        betControlsPanel.add(new JLabel("Apuesta:"));
+        betControlsPanel.add(betInputField);
+        betControlsPanel.add(decreaseBetButton);
+        betControlsPanel.add(increaseBetButton);
         
         JPanel resultPanel = new JPanel();
-        resultPanel.add(resultLabel);
+        resultPanel.add(resultMessage);
 
         panel.add(creditsPanel);
-        panel.add(betPanel);
+        panel.add(betControlsPanel);
         panel.add(spinButton);
         panel.add(resultPanel);
         
         return panel;
     }
 
-    // Listeners
-    public void setSpinButtonListener(ActionListener listener) {
+    // Configuración de listeners
+    public void setSpinButtonAction(ActionListener listener) {
         spinButton.addActionListener(listener);
     }
 
-    public void setIncreaseBetListener(ActionListener listener) {
+    public void setBetIncreaseAction(ActionListener listener) {
         increaseBetButton.addActionListener(listener);
     }
 
-    public void setDecreaseBetListener(ActionListener listener) {
+    public void setBetDecreaseAction(ActionListener listener) {
         decreaseBetButton.addActionListener(listener);
     }
 
-    // Getters/Setters
-    public int getBet() {
+    // Métodos para manejar la apuesta
+    public int getCurrentBet() {
         try {
-            return Integer.parseInt(betField.getText());
+            return Integer.parseInt(betInputField.getText());
         } catch (NumberFormatException e) {
             return 0;
         }
     }
 
-    public void setBet(int bet) {
-        betField.setText(String.valueOf(bet));
+    public void updateBetDisplay(int newBet) {
+        betInputField.setText(String.valueOf(newBet));
     }
 
-    public void displaySpinResult(SpinResult result) {
-        if (result.getSymbols() != null) {
-            for (int i = 0; i < result.getSymbols().length; i++) {
-                reelLabels[i].setText(result.getSymbols()[i].getName());
+    /**
+     * Actualiza la vista con los resultados de un giro
+     */
+    public void showSpinResults(SpinOutcome outcome) {
+        if (outcome.getResultingSymbols() != null) {
+            for (int i = 0; i < outcome.getResultingSymbols().length; i++) {
+                reelDisplayLabels[i].setText(outcome.getResultingSymbols()[i].getDisplayCharacter());
             }
         }
-        creditsLabel.setText("Créditos: " + result.getCredits());
-        resultLabel.setText(result.getWinnings() > 0 ? 
-            "¡Ganaste " + result.getWinnings() + " créditos!" : "Intenta de nuevo.");
+        creditsDisplay.setText("Créditos: " + outcome.getTotalCredits());
+        resultMessage.setText(outcome.getCreditsWon() > 0 ? 
+            "¡Ganaste " + outcome.getCreditsWon() + " créditos!" : "Intenta de nuevo.");
     }
 
-    public void setSpinEnabled(boolean enabled) {
-        spinButton.setEnabled(enabled);
+    public void toggleSpinButton(boolean isEnabled) {
+        spinButton.setEnabled(isEnabled);
     }
 }
 
 /**
- * Controlador del tragamonedas (MVC)
- * Maneja la interacción entre Modelo y Vista
+ * Controlador que maneja la interacción entre el modelo y la vista
  */
 class SlotMachineController {
-    private final SlotMachine model;
-    private final SlotMachineViewGUI view;
+    private final SlotMachineModel gameModel;
+    private final SlotMachineView gameView;
 
-    public SlotMachineController(SlotMachine model, SlotMachineViewGUI view) {
-        this.model = model;
-        this.view = view;
-        setupListeners();
-        updateView();
+    public SlotMachineController(SlotMachineModel gameModel, SlotMachineView gameView) {
+        this.gameModel = gameModel;
+        this.gameView = gameView;
+        configureEventHandlers();
+        refreshView();
     }
 
-    private void setupListeners() {
-        view.setSpinButtonListener(e -> spin());
-        view.setIncreaseBetListener(e -> adjustBet(1));
-        view.setDecreaseBetListener(e -> adjustBet(-1));
+    private void configureEventHandlers() {
+        gameView.setSpinButtonAction(e -> handleSpin());
+        gameView.setBetIncreaseAction(e -> modifyBet(1));
+        gameView.setBetDecreaseAction(e -> modifyBet(-1));
     }
 
-    private void spin() {
-        view.setSpinEnabled(false);
+    private void handleSpin() {
+        gameView.toggleSpinButton(false);
         
         new SwingWorker<Void, Void>() {
             @Override
@@ -314,43 +325,43 @@ class SlotMachineController {
             
             @Override
             protected void done() {
-                processSpinResult();
+                updateAfterSpin();
             }
         }.execute();
     }
 
-    private void processSpinResult() {
-        SpinResult result = model.spin();
-        view.displaySpinResult(result);
-        view.setSpinEnabled(true);
+    private void updateAfterSpin() {
+        SpinOutcome spinResult = gameModel.executeSpin();
+        gameView.showSpinResults(spinResult);
+        gameView.toggleSpinButton(true);
     }
 
-    private void adjustBet(int delta) {
-        int newBet = view.getBet() + delta;
-        if (newBet > 0 && newBet <= model.getCredits()) {
-            model.setBet(newBet);
-            view.setBet(newBet);
+    private void modifyBet(int adjustment) {
+        int proposedBet = gameView.getCurrentBet() + adjustment;
+        if (proposedBet > 0 && proposedBet <= gameModel.getPlayerCredits()) {
+            gameModel.setCurrentBet(proposedBet);
+            gameView.updateBetDisplay(proposedBet);
         }
     }
 
-    private void updateView() {
-        view.displaySpinResult(new SpinResult(null, 0, model.getCredits()));
-        model.setBet(view.getBet());
+    private void refreshView() {
+        gameView.showSpinResults(new SpinOutcome(null, 0, gameModel.getPlayerCredits()));
+        gameModel.setCurrentBet(gameView.getCurrentBet());
     }
 }
 
 /**
- * Hilo de ejecución para la concurrencia
+ * Hilo de ejecución para operaciones concurrentes del juego
  */
-class GameThread implements Runnable {
-    private final SlotMachineController controller;
+class GameEngineThread implements Runnable {
+    private final SlotMachineController mainController;
 
-    public GameThread(SlotMachineController controller) {
-        this.controller = controller;
+    public GameEngineThread(SlotMachineController mainController) {
+        this.mainController = mainController;
     }
 
     @Override
     public void run() {
-        // Lógica de fondo si fuera necesaria
+        // Lógica de fondo para operaciones concurrentes
     }
 }
